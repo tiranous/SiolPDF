@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "PDF Editor Pro",
+  "version": "1.0.0",
+  "description": "Εξαιρετικά εύκολος PDF editor με προχωρημένα χαρακτηριστικά. Συγχώνευση, διαχωρισμός, σχολιασμός και περικοπή PDF αρχείων.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "*://*/*",
+    "file:///*"
+  ],
+  "background": {
+    "service_worker": "src/background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content/content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "src/ui/popup/popup.html",
+    "default_icon": {
+      "16": "src/assets/icons/icon-16.png",
+      "48": "src/assets/icons/icon-48.png",
+      "128": "src/assets/icons/icon-128.png"
+    },
+    "default_title": "PDF Editor Pro"
+  },
+  "icons": {
+    "16": "src/assets/icons/icon-16.png",
+    "48": "src/assets/icons/icon-48.png",
+    "128": "src/assets/icons/icon-128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/lib/pdf.worker.mjs",
+        "src/workers/*",
+        "src/ui/main/*",
+        "src/assets/icons/*",
+        "src/styles/*",
+        "src/lib/*"
+      ],
+      "matches": [
+        "*://*/*",
+        "file:///*"
+      ]
+    }
+  ]
+}
