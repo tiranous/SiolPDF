@@ -1,3 +1,6 @@
+// Avoid running inside iframes (e.g., Chrome PDF viewer subframes)
+if (window.top !== window.self) { throw new Error('SiolPDF: skip_iframe'); }
+
 /**
  * Content Script - PDF Editor Pro (MV3-compliant)
  * Detects PDFs on web pages and provides quick access to editor
@@ -45,28 +48,40 @@ class PDFDetector {
     try {
       // Current page is PDF
       if (this.isPDFPage()) {
-        this.showPDFBanner({
-          type: 'current',
-          url: window.location.href,
-          title: document.title || 'PDF Document'
-        });
+        chrome.runtime.sendMessage({ type: 'IS_DISMISSED' }, (resp) => {
+        if (!resp || !resp.dismissed) {
+          this.showPDFBanner({
+            type: 'current',
+            url: window.location.href,
+            title: document.title || 'PDF Document'
+          });
+        }
+      });
         return;
       }
 
       // Embedded PDFs
       const embeddedPDF = this.findEmbeddedPDF();
       if (embeddedPDF) {
-        this.showPDFBanner({
-          type: 'embedded',
-          ...embeddedPDF
-        });
+        chrome.runtime.sendMessage({ type: 'IS_DISMISSED' }, (resp) => {
+        if (!resp || !resp.dismissed) {
+          this.showPDFBanner({
+            type: 'embedded',
+            ...embeddedPDF
+          });
+        }
+      });
         return;
       }
 
       // PDF links (only if no banner already shown)
       const pdfLinks = this.findPDFLinks();
       if (pdfLinks.length > 0 && !this.bannerInjected) {
-        this.showPDFLinksBanner(pdfLinks);
+        chrome.runtime.sendMessage({ type: 'IS_DISMISSED' }, (resp) => {
+          if (!resp || !resp.dismissed) {
+            this.showPDFLinksBanner(pdfLinks);
+          }
+        });
       }
     } catch (error) {
       console.error('PDF detection error:', error);
@@ -178,12 +193,12 @@ class PDFDetector {
       }
 
       if (closeBtn) {
-        closeBtn.addEventListener('click', () => this.closeBanner());
+        closeBtn.addEventListener('click', () => this.closeBanner(true));
       }
 
       // Auto-hide after 10 seconds
       setTimeout(() => {
-        this.closeBanner();
+        this.closeBanner(false);
       }, 10000);
 
     } catch (error) {
@@ -246,10 +261,10 @@ class PDFDetector {
       }
 
       if (closeBtn) {
-        closeBtn.addEventListener('click', () => this.closeBanner());
+        closeBtn.addEventListener('click', () => this.closeBanner(true));
       }
 
-      setTimeout(() => this.closeBanner(), 15000);
+      setTimeout(() => this.closeBanner(false), 15000);
 
     } catch (error) {
       console.error('Failed to show PDF links banner:', error);
@@ -395,7 +410,8 @@ class PDFDetector {
 
   openInEditor(url = null) {
     try {
-      const targetUrl = url || (this.pdfInfo && this.pdfInfo.url) || window.location.href;
+      let targetUrl = url || (this.pdfInfo && this.pdfInfo.url) || window.location.href;
+      try { const u = new URL(targetUrl, window.location.href); targetUrl = u.searchParams.get('src') || targetUrl; } catch {}
 
       chrome.runtime.sendMessage({
         action: 'openPDFEditor',
@@ -414,7 +430,7 @@ class PDFDetector {
     }
   }
 
-  closeBanner() {
+  closeBanner(userDismissed = false) {
     try {
       const banner = document.getElementById('pdf-editor-banner');
       if (banner) {
@@ -424,6 +440,9 @@ class PDFDetector {
             banner.remove();
           }
           this.bannerInjected = false;
+          if (userDismissed) {
+            try { chrome.runtime.sendMessage({ type: 'DISMISS_BANNER' }); } catch {}
+          }
         }, 300);
       }
     } catch (error) {
