@@ -89,6 +89,31 @@ function createContextMenus() {
     });
 
     console.log('Context menus created successfully');
+
+// Per-tab banner dismiss state
+const __siolpdf_dismissedTabs = new Set();
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === 'DISMISS_BANNER' && sender.tab && sender.tab.id != null) {
+    __siolpdf_dismissedTabs.add(sender.tab.id);
+    chrome.storage.session.set({ ['siolpdf_dismissed_' + sender.tab.id]: true });
+    sendResponse && sendResponse({ ok: true });
+    return true;
+  }
+  if (msg && msg.type === 'IS_DISMISSED' && sender.tab && sender.tab.id != null) {
+    const key = 'siolpdf_dismissed_' + sender.tab.id;
+    chrome.storage.session.get(key).then(v => {
+      const dismissed = !!(v && v[key]) || __siolpdf_dismissedTabs.has(sender.tab.id);
+      sendResponse && sendResponse({ dismissed });
+    });
+    return true; // async
+  }
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  __siolpdf_dismissedTabs.delete(tabId);
+  chrome.storage.session.remove('siolpdf_dismissed_' + tabId);
+});
+
   });
 }
 
@@ -133,7 +158,7 @@ async function openPDFEditor(info, tab) {
     const editorUrl = chrome.runtime.getURL('src/ui/main/main.html');
 
     // Check if editor is already open
-    const tabs = await chrome.tabs.query({ url: editorUrl });
+    const tabs = await chrome.tabs.query({ url: editorUrl + '*' });
 
     if (tabs.length > 0) {
       // Focus existing editor and send PDF URL
@@ -167,7 +192,7 @@ async function quickMerge(info, tab) {
   setTimeout(async () => {
     try {
       const editorUrl = chrome.runtime.getURL('src/ui/main/main.html');
-      const tabs = await chrome.tabs.query({ url: editorUrl });
+      const tabs = await chrome.tabs.query({ url: editorUrl + '*' });
 
       if (tabs.length > 0) {
         chrome.tabs.sendMessage(tabs[0].id, {
@@ -189,7 +214,7 @@ async function quickSplit(info, tab) {
   setTimeout(async () => {
     try {
       const editorUrl = chrome.runtime.getURL('src/ui/main/main.html');
-      const tabs = await chrome.tabs.query({ url: editorUrl });
+      const tabs = await chrome.tabs.query({ url: editorUrl + '*' });
 
       if (tabs.length > 0) {
         chrome.tabs.sendMessage(tabs[0].id, {

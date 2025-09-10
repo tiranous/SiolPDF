@@ -6,7 +6,7 @@
 // Import pdf-lib for PDF manipulation (when available)
 try {
   // Dynamic import for when library is available
-  importScripts('../../lib/pdf-lib.min.js');
+  importScripts(chrome.runtime.getURL('src/lib/pdf-lib.min.js'));
 } catch (error) {
   console.warn('PDF-lib not available - using mock implementation');
 }
@@ -35,6 +35,13 @@ self.addEventListener('message', async (event) => {
         break;
 
       case 'removeCamScanner':
+        result = await removeCamScannerElements(buffer);
+        break;
+
+      case 'removeWatermarkAggressive':
+        result = await aggressiveRemoveWatermarks(buffer);
+        break;
+
         result = await removeCamScannerElements(buffer);
         break;
 
@@ -354,6 +361,73 @@ async function simulateProgress(operation, steps = null) {
       message: message
     });
   }
+}
+
+
+// Aggressive watermark removal: removes Artifact /Watermark blocks, suspicious XObjects and watermark text
+async function aggressiveRemoveWatermarks(pdfBuffer) {
+  if (typeof PDFLib === 'undefined') return pdfBuffer;
+  const { PDFDocument, PDFName, PDFArray } = PDFLib;
+  const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+  const ctx = pdfDoc.context;
+  const enc = new TextEncoder();
+  const dec = new TextDecoder('latin1');
+
+  function toArray(obj) {
+    if (!obj) return PDFArray.withContext(ctx);
+    if (obj instanceof PDFArray) return obj;
+    const arr = PDFArray.withContext(ctx);
+    arr.push(obj);
+    return arr;
+  }
+
+  for (const page of pdfDoc.getPages()) {
+    const contents = toArray(page.node.get(PDFName.of('Contents')));
+
+    for (let i = 0; i < contents.size(); i++) {
+      const ref = contents.get(i);
+      const stream = ctx.lookup(ref);
+
+      let src = '';
+      try {
+        src = dec.decode(stream.decode ? stream.decode() : (stream.contents || new Uint8Array()));
+      } catch {}
+
+      // 1) Remove Artifact Watermark marked-content blocks
+      src = src.replace(/\/Artifact\s+<<[^>]*\/Subtype\s*\/Watermark[^>]*>>\s*BDC[\s\S]*?EMC/g, '');
+
+      // 2) Remove suspicious XObject drawings
+      src = src.replace(/\/(WM|WATERMARK|CS|CAMSCN|CSLOGO|Wmk\d+)\s+Do/g, '');
+
+      // 3) Remove text operations that contain watermark phrases
+      const WMPAT = /(CamScanner|Scanned\s+with\s+CamScanner|Watermark|Scanned\s+by|Generated\s+by|Sample|Demo)/i;
+      src = src.replace(/\((?:\\\)|\\\(|[^)])*\)\s*Tj/g, m => WMPAT.test(m) ? '' : m);
+      src = src.replace(/\[(?:[^\]]*)\]\s*TJ/g, m => WMPAT.test(m) ? '' : m);
+      src = src.replace(/BT[\s\S]{0,800}?ET/g, m => WMPAT.test(m) ? '' : m);
+
+      const newStream = ctx.flateStream(enc.encode(src));
+      const newRef = ctx.register(newStream);
+      contents.set(i, newRef);
+    }
+
+    page.node.set(PDFName.of('Contents'), contents);
+    page.node.set(PDFName.of('Annots'), PDFArray.withContext(ctx));
+  }
+
+  for (const page of pdfDoc.getPages()) {
+    const res = page.node.get(PDFName.of('Resources'));
+    if (!res) continue;
+    const xobj = res.get(PDFName.of('XObject'));
+    if (!xobj || !xobj.keys) continue;
+    ['WM','WATERMARK','CS','CAMSCN','CSLOGO'].forEach(name => {
+      const k = PDFName.of(name);
+      try { if (xobj.has && xobj.has(k)) xobj.delete(k); } catch {}
+    });
+  }
+
+  try { pdfDoc.setTitle(''); pdfDoc.setAuthor(''); pdfDoc.setCreator(''); pdfDoc.setProducer(''); } catch {}
+
+  return await pdfDoc.save();
 }
 
 console.log('PDF Worker initialized (MV3-compatible)');

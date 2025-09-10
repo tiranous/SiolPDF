@@ -81,13 +81,13 @@ class PDFProcessor {
       // Initialize PDF processing worker
       this.worker = new Worker(
         chrome.runtime.getURL("src/workers/pdf-worker.js"), 
-        { type: "module" }
+        { type: "classic" }
       );
 
       // Initialize merge worker
       this.mergeWorker = new Worker(
         chrome.runtime.getURL("src/workers/merge-worker.js"), 
-        { type: "module" }
+        { type: "classic" }
       );
 
       this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));
